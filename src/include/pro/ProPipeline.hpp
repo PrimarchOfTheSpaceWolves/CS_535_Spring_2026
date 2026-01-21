@@ -4,6 +4,41 @@
 namespace pro {
 
     ///////////////////////////////////////////////////////////////////////////
+    // HELPER FUNCTIONS
+    ///////////////////////////////////////////////////////////////////////////
+
+    inline vk::Viewport makeDefaultViewport(VulkanInitData &vkInitData, 
+                                            bool flipViewportY = true) { 
+        vk::Viewport viewport {};
+        float width = (float)vkInitData.swapchain().extent.width;
+        float height = (float)vkInitData.swapchain().extent.height;
+
+        if(!flipViewportY) {
+            // Y still downward
+            // Will make problems for winding order
+            viewport = vk::Viewport (0, 
+                                     0, 
+                                     width, 
+                                     height, 
+                                     0.0f, 1.0f);
+        }
+        else {
+            // Y upward now
+            viewport = vk::Viewport (0, 
+                                     height,        // Start at bottom
+                                     width, 
+                                     -height,       // Using NEGATIVE height
+                                     0.0f, 1.0f);
+        }
+
+        return viewport;
+    };
+
+    inline vk::Rect2D makeDefaultScissors(VulkanInitData &vkInitData) {
+        return vk::Rect2D({0,0}, vkInitData.swapchain().extent);
+    };
+
+    ///////////////////////////////////////////////////////////////////////////
     // STRUCTS 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -54,7 +89,7 @@ namespace pro {
         vk::PipelineMultisampleStateCreateInfo multisampleInfo {};
         
         // No-arg constructor
-        VulkanPipelineCreateInfo(VulkanInitData &vkInitData) {
+        VulkanPipelineCreateInfo(VulkanInitData &vkInitData, bool flipViewportY = true) {
             // Assembly defaults to triangle list
             inputAssemblyInfo = vk::PipelineInputAssemblyStateCreateInfo({}, vk::PrimitiveTopology::eTriangleList, false);
 
@@ -70,12 +105,8 @@ namespace pro {
             rasterizerInfo.frontFace = vk::FrontFace::eCounterClockwise; 
 
             // Default viewport and scissors
-            viewport = vk::Viewport(
-                0, 0, 
-                (float)vkInitData.swapchain().extent.width, 
-                (float)vkInitData.swapchain().extent.height, 
-                0.0f, 1.0f);
-            scissor = vk::Rect2D({0,0}, vkInitData.swapchain().extent);
+            viewport = makeDefaultViewport(vkInitData, flipViewportY);
+            scissor = makeDefaultScissors(vkInitData);
             
             // Default color blend info (basically no color blending)            
             colorBlendAttachment.colorWriteMask = 

@@ -98,14 +98,10 @@ void recordFrame(   pro::VulkanInitData &vkInitData,
     cd.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipelineData.pipeline);
     
     // Set up viewport and scissors
-    vk::Viewport viewports[] = {
-        {0, 0, 
-        (float)vkInitData.swapchain().extent.width, 
-        (float)vkInitData.swapchain().extent.height, 
-        0.0f, 1.0f}};
+    vk::Viewport viewports[] = { pro::makeDefaultViewport(vkInitData) };    
     cd.commandBuffer.setViewport(0, viewports);
     
-    vk::Rect2D scissors[] = {{{0,0}, vkInitData.swapchain().extent}};
+    vk::Rect2D scissors[] = { pro::makeDefaultScissors(vkInitData) };
     cd.commandBuffer.setScissor(0, scissors);
 
     // FOR NOW, just render all meshes
@@ -270,7 +266,7 @@ int main(int argc, char **argv) {
             {{0.5f, 0.5f, 0.5f},    {0,0,1,1}},
             {{-0.5f, 0.5f, 0.5f},   {1,1,1,1}}
         };
-        simpleQuad.indices = { 0, 2, 1, 2, 0, 3 };        
+        simpleQuad.indices = { 0, 1, 2, 0, 2, 3 };        
         allHostMeshes.push_back(simpleQuad);
 
         // Create the Vulkan meshes
