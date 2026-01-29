@@ -8,6 +8,7 @@ namespace pro {
     ///////////////////////////////////////////////////////////////////////////
 
     using CreateSurfaceFunc = std::function<VkResult(VkInstance, VkSurfaceKHR&)>;
+    using GetCurrentWindowSizeFunc = std::function<void(int&, int&)>;
     
     ///////////////////////////////////////////////////////////////////////////
     // STRUCTS 
@@ -44,6 +45,9 @@ namespace pro {
         vk::PhysicalDeviceVulkan12Features reqFeatures12 {};
         vk::PhysicalDeviceVulkan13Features reqFeatures13 {};   
         vector<string> reqExtensions {};
+
+        // Window size
+        GetCurrentWindowSizeFunc getCurrentWindowSizeFunc = nullptr;
 
         // Surface
         CreateSurfaceFunc createSurfaceFunc = nullptr;
@@ -164,6 +168,9 @@ namespace pro {
                 print_and_throw_error("VulkanInitData", "createSurfaceFunc cannot be null!");                
             }
 
+            // Copy our "get window/buffer size" function
+            this->getCurrentWindowSizeFunc = createInfo.getCurrentWindowSizeFunc;
+           
             // Instance
             vkb::InstanceBuilder builder;        
             auto instRet = builder.set_app_name(createInfo.appName.c_str())
@@ -394,12 +401,21 @@ namespace pro {
         VulkanSwapChain swapchain_ {};           // Cleaned up explicitly
         VkSurfaceFormatKHR swapchain_create_format_ {};   // No NEED to clean up
 
-        VmaAllocator allocator_ {};              // Cleaned up explicitly              
+        VmaAllocator allocator_ {};              // Cleaned up explicitly 
+        
+        GetCurrentWindowSizeFunc getCurrentWindowSizeFunc = nullptr;    // No cleanup necessary
 
         bool createVulkanSwapchain() {
+            // Get current window/buffer width and height
+            int width, height;
+            getCurrentWindowSizeFunc(width, height);
+
             // Create swapchain
             vkb::SwapchainBuilder swapchainBuilder { bootDevice_ };
-            auto swapRet = swapchainBuilder.set_desired_format(swapchain_create_format_).build();
+            auto swapRet = swapchainBuilder.set_desired_format(swapchain_create_format_)
+                                            .set_desired_extent(static_cast<uint32_t>(width), 
+                                                                static_cast<uint32_t>(height))
+                                            .build();
 
             if(!swapRet) {
                 print_error("VulkanInitData", "Failed to create swapchain.\n" + swapRet.error().message());                

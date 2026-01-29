@@ -172,16 +172,15 @@ int main(int argc, char **argv) {
         //createInfo.requestedAppVulkanVersionMinor = 3;
         
         // If you encounter errors with compute and/or transfer queue creation, try these:
-        //createInfo.requireComputeQueue = false;
-        //createInfo.requireTransferQueue = false;
+        createInfo.requireComputeQueue = false;
+        createInfo.requireTransferQueue = false;
 
-        createInfo.createSurfaceFunc = [window](VkInstance instance, VkSurfaceKHR& surface) {
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            cout << "WINDOW: " << width << " " << height << endl;
-
-
+        createInfo.createSurfaceFunc = [window](VkInstance instance, VkSurfaceKHR& surface) {            
             return glfwCreateWindowSurface(instance, window, nullptr, &surface);
+        };
+
+        createInfo.getCurrentWindowSizeFunc = [window](int &width, int &height) {
+            glfwGetFramebufferSize(window, &width, &height);
         };
     
         // Create the basic Vulkan components
