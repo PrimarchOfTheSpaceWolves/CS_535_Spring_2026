@@ -20,13 +20,6 @@ include(CMakePackageConfigHelpers)
 include(FetchContent)
 
 #####################################
-# Vulkan and Threads
-#####################################
-
-find_package(Vulkan REQUIRED)
-find_package(Threads REQUIRED)
-
-#####################################
 # GLFW
 #####################################
 
@@ -127,6 +120,13 @@ if(NOT vk-bootstrap_FOUND)
 else()
     message("vk-bootstrap already installed on system...")
 endif()
+
+#####################################
+# Vulkan and Threads
+#####################################
+
+find_package(Vulkan REQUIRED)
+find_package(Threads REQUIRED)
 
 #####################################
 # VMA

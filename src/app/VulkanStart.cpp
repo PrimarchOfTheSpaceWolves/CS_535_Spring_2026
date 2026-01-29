@@ -168,7 +168,19 @@ int main(int argc, char **argv) {
         // Creation information for basic Vulkan components
         pro::VulkanInitCreateInfo createInfo {};
         createInfo.appName = appName;
+        // If you encounter errors with instance creation, try requesting Vulkan 1.3:
+        //createInfo.requestedAppVulkanVersionMinor = 3;
+        
+        // If you encounter errors with compute and/or transfer queue creation, try these:
+        //createInfo.requireComputeQueue = false;
+        //createInfo.requireTransferQueue = false;
+
         createInfo.createSurfaceFunc = [window](VkInstance instance, VkSurfaceKHR& surface) {
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            cout << "WINDOW: " << width << " " << height << endl;
+
+
             return glfwCreateWindowSurface(instance, window, nullptr, &surface);
         };
     

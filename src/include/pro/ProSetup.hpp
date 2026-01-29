@@ -16,6 +16,7 @@ namespace pro {
     struct VulkanQueue {
         vk::Queue queue {};
         unsigned int index = 0;
+        bool is_valid = false;
     };
 
     struct VulkanSwapImage {
@@ -49,6 +50,10 @@ namespace pro {
 
         // Swapchain
         VkSurfaceFormatKHR desiredSwapchainFormat {};
+
+        // Queues
+        bool requireComputeQueue = true;
+        bool requireTransferQueue = true;
             
         VulkanInitCreateInfo() {
             // Set default requested features
@@ -124,7 +129,7 @@ namespace pro {
         if(!useDedicated) {
             queueRet = vkbDevice.get_queue(queueType);
             if(!queueRet) {
-                cerr << "Error: " << queueRet.error().message() << endl;
+                print_failure("getVulkanQueue", queueRet.error().message());                
                 return false;
             } 
         }
@@ -140,6 +145,9 @@ namespace pro {
             queueData.index = vkbDevice.get_dedicated_queue_index(queueType).value();
         }
 
+        // Set valid
+        queueData.is_valid = true;
+
         // Success!
         return true;
     };
@@ -153,7 +161,7 @@ namespace pro {
         VulkanInitData(VulkanInitCreateInfo &createInfo) {
             // Quick sanity check...is the surface creation function defined?
             if(!createInfo.createSurfaceFunc) {
-                throw runtime_error("createSurfaceFunc cannot be null!");
+                print_and_throw_error("VulkanInitData", "createSurfaceFunc cannot be null!");                
             }
 
             // Instance
@@ -168,7 +176,7 @@ namespace pro {
                                     0)
                                 .build();
             if(!instRet) {
-                throw runtime_error(instRet.error().message());               
+                print_and_throw_error("VulkanInitData", instRet.error().message());                      
             }
 
             vkb::Instance vkbInstance = instRet.value();
@@ -179,8 +187,8 @@ namespace pro {
             VkSurfaceKHR surface = nullptr;
             VkResult surfErr = createInfo.createSurfaceFunc(vkbInstance.instance, surface);
             if(surfErr != VK_SUCCESS) {                 
-                vkb::destroy_instance(bootInstance_);                       
-                throw runtime_error(surfErr + "");
+                vkb::destroy_instance(bootInstance_);   
+                print_and_throw_error("VulkanInitData", surfErr + ""); 
             }
             surface_ = vk::SurfaceKHR { surface };
 
@@ -203,8 +211,8 @@ namespace pro {
 
             if(!physRet) {  
                 instance_.destroySurfaceKHR(surface_); 
-                vkb::destroy_instance(bootInstance_);                       
-                throw runtime_error(physRet.error().message());                
+                vkb::destroy_instance(bootInstance_);   
+                print_and_throw_error("VulkanInitData", physRet.error().message());   
             }
 
             vkb::PhysicalDevice vkbPhysicalDevice = physRet.value();
@@ -215,8 +223,8 @@ namespace pro {
             auto devRet = deviceBuilder.build();
             if(!devRet) {
                 instance_.destroySurfaceKHR(surface_); 
-                vkb::destroy_instance(bootInstance_);                 
-                throw runtime_error(devRet.error().message());
+                vkb::destroy_instance(bootInstance_);    
+                print_and_throw_error("VulkanInitData", devRet.error().message());
             }
             vkb::Device vkbDevice = devRet.value();
             device_ = vk::Device { vkbDevice.device };
@@ -245,11 +253,15 @@ namespace pro {
             bool computeQueueSuccess = getVulkanQueue(vkbDevice, vkb::QueueType::compute, computeQueue_);
             bool transferQueueSuccess = getVulkanQueue(vkbDevice, vkb::QueueType::transfer, transferQueue_);
 
-            if(!graphQueueSuccess || !presentQueueSuccess || !computeQueueSuccess || !transferQueueSuccess) {
+            if(!graphQueueSuccess || 
+                !presentQueueSuccess ||
+                (createInfo.requireComputeQueue && !computeQueueSuccess) ||
+                (createInfo.requireTransferQueue && !transferQueueSuccess)) {
+            
                 device_.destroy();
                 instance_.destroySurfaceKHR(surface_); 
-                vkb::destroy_instance(bootInstance_);                 
-                throw runtime_error("Could not retrieve requested queues!");
+                vkb::destroy_instance(bootInstance_);  
+                print_and_throw_error("VulkanInitData", "Could not retrieve requested queues!"); 
             }
 
             // Create swapchain
@@ -257,8 +269,8 @@ namespace pro {
             if(!createVulkanSwapchain()) {
                 device_.destroy();
                 instance_.destroySurfaceKHR(surface_); 
-                vkb::destroy_instance(bootInstance_);                 
-                throw runtime_error("Unable to create swapchain!");
+                vkb::destroy_instance(bootInstance_);     
+                print_and_throw_error("VulkanInitData", "Unable to create swapchain!");     
             }   
             
             
@@ -269,12 +281,12 @@ namespace pro {
             allocatorInfo.device = vkbDevice.device;
 
             auto vmaResult = vmaCreateAllocator(&allocatorInfo, &(allocator_));
-            if(!devRet) {    
+            if(vmaResult != VK_SUCCESS) {    
                 cleanupVulkanSwapchain();            
                 device_.destroy();
                 instance_.destroySurfaceKHR(surface_); 
-                vkb::destroy_instance(bootInstance_);                 
-                throw runtime_error(devRet.error().message());
+                vkb::destroy_instance(bootInstance_);  
+                print_and_throw_error("VulkanInitData", string_VkResult(vmaResult));
             }            
         };
         
@@ -306,6 +318,9 @@ namespace pro {
         const VulkanSwapChain& swapchain() const noexcept { return swapchain_; };
         const VmaAllocator allocator() const noexcept { return allocator_; };
 
+        const bool isComputeQueueValid() const noexcept { return computeQueue_.is_valid; }
+        const bool isTransferQueueValid() const noexcept { return transferQueue_.is_valid; }
+
         // Other member functions        
         void recreateVulkanSwapchain() {    
             // Wait until device is idle
@@ -322,22 +337,31 @@ namespace pro {
             os << "** QUEUES: ***************" << endl;
             os << "Graphics: " << graphicsQueue_.index << endl;
             os << "Present: " << presentQueue_.index << endl;
-            os << "Compute: " << computeQueue_.index << endl;
-            os << "Transfer: " << transferQueue_.index << endl;
-            os << endl;
-
-            if(isComputeDedicated()) {
-                os << "Using dedicated compute queue." << endl;
+            if(computeQueue_.is_valid) os << "Compute: " << computeQueue_.index << endl;
+            if(transferQueue_.is_valid) os << "Transfer: " << transferQueue_.index << endl;
+            os << "---------------------------" << endl;           
+            if(computeQueue_.is_valid) {                
+                if(isComputeDedicated()) {
+                    os << "Using dedicated compute queue." << endl;
+                }
+                else {
+                    os << "Compute queue same as graphics queue." << endl;
+                }
             }
             else {
-                os << "Compute queue same as graphics queue." << endl;
+                os << "Compute queue NOT valid." << endl;
             }
 
-            if(isTransferDedicated()) {
-                os << "Using dedicated transfer queue." << endl;
+            if(transferQueue_.is_valid) {
+                if(isTransferDedicated()) {
+                    os << "Using dedicated transfer queue." << endl;
+                }
+                else {
+                    os << "Transfer queue same as graphics queue." << endl;
+                }
             }
             else {
-                os << "Transfer queue same as graphics queue." << endl;
+                os << "Transfer queue NOT valid." << endl;
             }
             
             os << "**************************" << endl;            
@@ -378,8 +402,7 @@ namespace pro {
             auto swapRet = swapchainBuilder.set_desired_format(swapchain_create_format_).build();
 
             if(!swapRet) {
-                cerr << "initVulkanBootstrap: Failed to create swapchain." << endl;
-                cerr << "Error: " << swapRet.error().message() << endl;
+                print_error("VulkanInitData", "Failed to create swapchain.\n" + swapRet.error().message());                
                 return false;
             }
             
