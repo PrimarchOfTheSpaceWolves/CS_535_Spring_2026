@@ -8,6 +8,7 @@
 #include <functional>
 #include <thread>
 #include <chrono>
+#include <atomic>
 using namespace std;
 
 // If uncommented, use dynamic dispatcher

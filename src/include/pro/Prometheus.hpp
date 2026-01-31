@@ -1,5 +1,6 @@
 #pragma once
 #include "ProCore.hpp"
+#include "ProTime.hpp"
 #include "ProSetup.hpp"
 #include "ProImage.hpp"
 #include "ProCommand.hpp"
