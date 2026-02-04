@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
         pro::VulkanInitCreateInfo createInfo {};
         createInfo.appName = appName;
         // If you encounter errors with instance creation, try requesting Vulkan 1.3:
-        //createInfo.requestedAppVulkanVersionMinor = 3;
+        // createInfo.requestedAppVulkanVersionMinor = 3;
         
         // If you encounter errors with compute and/or transfer queue creation, try these:
         createInfo.requireComputeQueue = false;
