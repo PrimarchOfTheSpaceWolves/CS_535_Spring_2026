@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, true);
 
-    string appName = "ProfExercises04";
+    string appName = "ProfExercises05";
     int winWidth = 800;
     int winHeight = 600;
     GLFWwindow *window = glfwCreateWindow(winWidth, winHeight, 
