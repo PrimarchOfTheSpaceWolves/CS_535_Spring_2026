@@ -45,7 +45,7 @@ namespace pro {
     struct VulkanShaderCreateInfo {
         string filename {};
         vk::ShaderStageFlagBits stage {};
-        
+                
         VulkanShaderCreateInfo(string filename, vk::ShaderStageFlagBits stage) {
             this->filename = filename;
             this->stage = stage;
@@ -146,7 +146,7 @@ namespace pro {
         ifstream file(filename, ios::ate | ios::binary);
 
         if (!file.is_open()) {
-            throw runtime_error("Failed to open file!");
+            print_and_throw_error("readBinaryFile", "Failed to open file: " + filename);            
         }
 
         size_t fileSize = (size_t) file.tellg();
@@ -236,7 +236,7 @@ namespace pro {
 
         // Did we create the pipeline?
         if (ret.result != vk::Result::eSuccess) {
-            throw runtime_error("Failed to create graphics pipeline!");
+            print_and_throw_error("createVulkanPipeline", "Failed to create graphics pipeline!");           
         }
 
         // Set pipeline
