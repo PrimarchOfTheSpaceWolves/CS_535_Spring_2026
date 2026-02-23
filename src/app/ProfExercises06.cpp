@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, true);
 
-    string appName = "ProfExercises05";
+    string appName = "ProfExercises06";
     int winWidth = 800;
     int winHeight = 600;
     GLFWwindow *window = glfwCreateWindow(winWidth, winHeight, 
@@ -77,6 +77,19 @@ int main(int argc, char **argv) {
         qpci.queryType = vk::QueryType::eTimestamp;
         qpci.queryCount = 2;
         vk::QueryPool queryPool = vkInitData.device().createQueryPool(qpci);
+
+        pro::VulkanPipelineCreateInfo pipelineCreateInfo(vkInitData);
+
+        pipelineCreateInfo.shaderInfo = {
+            pro::VulkanShaderCreateInfo(
+                "build/compiledshaders/" + appName + "/shader.vert.spv",
+                vk::ShaderStageFlagBits::eVertex
+            ),
+            pro::VulkanShaderCreateInfo(
+                "build/compiledshaders/" + appName + "/shader.frag.spv",
+                vk::ShaderStageFlagBits::eFragment
+            )
+        };
         
         while(!glfwWindowShouldClose(window)) {
             glfwPollEvents();
