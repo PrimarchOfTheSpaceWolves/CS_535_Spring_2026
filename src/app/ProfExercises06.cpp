@@ -5,6 +5,10 @@ using namespace std;
 
 bool didWindowResize = false;
 
+struct ForgeVertex {
+    glm::vec3 pos;
+};
+
 static void window_resize_callback(GLFWwindow* window, int width, int height) {
     didWindowResize = true;
 }
@@ -90,7 +94,22 @@ int main(int argc, char **argv) {
                 vk::ShaderStageFlagBits::eFragment
             )
         };
-        
+
+        pipelineCreateInfo.bindDesc = vk::VertexInputBindingDescription(
+            0, sizeof(ForgeVertex), vk::VertexInputRate::eVertex
+        );
+
+        pipelineCreateInfo.attribDesc.push_back(
+            vk::VertexInputAttributeDescription(
+                0, 0, vk::Format::eR32G32B32Sfloat, offsetof(ForgeVertex, pos)
+            )
+        );
+
+        pro::VulkanPipelineData pipelineData = pro::createVulkanPipeline(
+                                                vkInitData, 
+                                                pipelineCreateInfo);
+
+
         while(!glfwWindowShouldClose(window)) {
             glfwPollEvents();
 
@@ -107,9 +126,9 @@ int main(int argc, char **argv) {
             vkInitData.device().resetCommandPool(commandData.commandPool);
             commandData.commandBuffer.begin(vk::CommandBufferBeginInfo());
 
-            commandData.commandBuffer.resetQueryPool(queryPool, 0, 2);
-            commandData.commandBuffer.writeTimestamp2(
-                vk::PipelineStageFlagBits2::eTopOfPipe, queryPool, 0);
+            //commandData.commandBuffer.resetQueryPool(queryPool, 0, 2);
+            //commandData.commandBuffer.writeTimestamp2(
+            //    vk::PipelineStageFlagBits2::eTopOfPipe, queryPool, 0);
 
             pro::performVulkanImageTransition(
                 commandData.commandBuffer,
@@ -117,7 +136,30 @@ int main(int argc, char **argv) {
                 pro::IMAGE_TRANSITION_TYPE::UNDEF_TO_COLOR
             );
 
+            auto colorAtt = pro::createColorAttachment(
+                vkInitData.swapchain().swaps[indexSwap].view,
+                vk::ClearColorValue(0.0f, 0.7f, 0.0f, 1.0f)
+            );
+
+            vk::RenderingInfoKHR ri {};
+            ri.setRenderArea(vk::Rect2D({0,0}, vkInitData.swapchain().extent))
+                .setLayerCount(1)
+                .setColorAttachments(colorAtt);
+
+            commandData.commandBuffer.beginRendering(ri);
+            commandData.commandBuffer.bindPipeline(
+                vk::PipelineBindPoint::eGraphics,
+                pipelineData.pipeline);
+
+            vk::Viewport viewports [] = { pro::makeDefaultViewport(vkInitData)};
+            vk::Rect2D scissors [] = { pro::makeDefaultScissors(vkInitData)};
+
+            commandData.commandBuffer.setViewport(0, viewports);
+            commandData.commandBuffer.setScissor(0, scissors);
+            
             // TODO: This is where the rendering magic happens
+
+            commandData.commandBuffer.endRendering();
 
             pro::performVulkanImageTransition(
                 commandData.commandBuffer,
@@ -125,8 +167,8 @@ int main(int argc, char **argv) {
                 pro::IMAGE_TRANSITION_TYPE::COLOR_TO_PRESENT
             );
 
-            commandData.commandBuffer.writeTimestamp2(
-                vk::PipelineStageFlagBits2::eBottomOfPipe, queryPool, 1);
+            //commandData.commandBuffer.writeTimestamp2(
+            //    vk::PipelineStageFlagBits2::eBottomOfPipe, queryPool, 1);
 
             commandData.commandBuffer.end();
 
@@ -138,6 +180,7 @@ int main(int argc, char **argv) {
 
             framesRendered++;
 
+            /*
             uint64_t timestamps[2] = {};
             vkInitData.device().getQueryPoolResults(
                 queryPool, 0, 2, sizeof(timestamps), timestamps, 
@@ -148,9 +191,11 @@ int main(int argc, char **argv) {
             double nsPerTick = props.limits.timestampPeriod;
             double deltaNs = (timestamps[1] - timestamps[0])*nsPerTick;
             cout << "TIME: " << deltaNs << endl;
+            */
         }
 
         vkInitData.device().waitIdle();
+        pro::cleanupVulkanPipeline(vkInitData, pipelineData);
         vkInitData.device().destroyQueryPool(queryPool);
         pro::cleanupFrameCommandData(vkInitData, commandData);
     }
