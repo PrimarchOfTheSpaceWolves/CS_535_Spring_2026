@@ -16,6 +16,36 @@ static void window_resize_callback(GLFWwindow* window, int width, int height) {
 int main(int argc, char **argv) {
     cout << "Starting exercises!" << endl;
 
+    glm::vec3 A = glm::vec3(1,4,0);
+    glm::vec3 B = glm::vec3(2,3,2);
+
+    cout << "A.x = " << A.x << endl;
+    cout << "A = " << glm::to_string(A) << endl;
+    cout << "B = " << glm::to_string(B) << endl;
+    glm::vec3 C = B - A;
+    cout << "C = " << glm::to_string(C) << endl;
+
+    A = 5.0f*A;
+    cout << "A = " << glm::to_string(A) << endl;
+
+    glm::vec3 normA = glm::normalize(A);
+    cout << "normA = " << glm::to_string(normA) << endl;
+
+    cout << "Length A = " << glm::length(A) << endl;
+    cout << "Length normA = " << glm::length(normA) << endl;
+
+    glm::vec3 normB = glm::normalize(B);
+    float dotAB = glm::dot(normA, normB);
+    cout << "dotAB = " << dotAB << endl;
+
+
+
+
+
+
+
+
+
     if(!glfwInit()) {
         cerr << "FAILED TO INIT GLFW!" << endl;
         exit(1);
