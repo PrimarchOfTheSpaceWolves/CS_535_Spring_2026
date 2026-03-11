@@ -14,12 +14,12 @@ namespace pro {
         void* mapped = nullptr;             
     };
 
-    struct PendingBufferCopy {
+    struct PendingBufferCopy {        
         void *hostData = nullptr;        
         VulkanBuffer dstBuffer {};
         vk::AccessFlags dstAccessMask {};
 
-        PendingBufferCopy(VulkanBuffer &dstBuffer, void *hostData, vk::AccessFlags dstAccessMask) {
+        PendingBufferCopy(VulkanBuffer &dstBuffer, void *hostData, vk::AccessFlags dstAccessMask) {            
             this->dstBuffer = dstBuffer;
             this->hostData = hostData;
             this->dstAccessMask = dstAccessMask;
@@ -27,6 +27,7 @@ namespace pro {
     };
 
     struct BufferCopyReceipt {
+        string copyID = "";
         vk::Fence copyFinished {};
         vector<vk::BufferMemoryBarrier> allReceiveBarriers {};
         vector<VulkanBuffer> allStageBuffers {};
@@ -121,9 +122,30 @@ namespace pro {
 
     class TransferManager {
     private:
-        vk::CommandPool transferPool {};        
+        vk::CommandPool transferPool {};      
+        unordered_map<string, BufferCopyReceipt*> copiesInProgress;
         VulkanInitData *refInitData;         // Do NOT clean up!!!
-        
+
+        void cleanupBufferReceipt(BufferCopyReceipt &receipt) {
+            // Cleanup staging buffers
+            for(unsigned int i = 0; i < receipt.allStageBuffers.size(); i++) {
+                cleanupVulkanBuffer(*refInitData, receipt.allStageBuffers[i]);
+            }
+            receipt.allStageBuffers.clear();
+
+            // Cleanup receive barriers
+            receipt.allReceiveBarriers.clear();
+
+            // Cleanup fence
+            cleanupVulkanFence(*refInitData, receipt.copyFinished);
+
+            // Free command buffer
+            refInitData->device().freeCommandBuffers(transferPool, 1, &receipt.commandBuffer);
+
+            // Remove from list of pending copies
+            copiesInProgress.erase(receipt.copyID);
+        }
+                
     public:
         TransferManager(VulkanInitData &vkInitData) {
             // Store init data
@@ -133,11 +155,19 @@ namespace pro {
             transferPool = createVulkanCommandPool(*refInitData, refInitData->transferQueue().index);            
         };
 
-        ~TransferManager() {            
+        ~TransferManager() {
+            // Cleanup any residual copies
+            for (auto it = copiesInProgress.begin(); it != copiesInProgress.end(); ) {
+                cleanupBufferReceipt(*(it->second));
+                it++;
+            }
+            copiesInProgress.clear();
+
+            // Cleanup command pool            
             cleanupVulkanCommandPool(*refInitData, transferPool);
         };
 
-        BufferCopyReceipt submitCopies(vector<PendingBufferCopy> &allPendingCopies) {
+        BufferCopyReceipt submitCopies(string copyID, vector<PendingBufferCopy> &allPendingCopies) {
             // Create the struct to hold the receipt
             BufferCopyReceipt receipt {};
 
@@ -204,6 +234,10 @@ namespace pro {
             submitInfo.commandBufferCount = 1;
             submitInfo.pCommandBuffers = &receipt.commandBuffer;
             refInitData->transferQueue().queue.submit(1, &submitInfo, receipt.copyFinished);
+
+            // Add to copies in progress
+            receipt.copyID = copyID;
+            copiesInProgress[copyID] = &receipt;
             
             // Return our receipt
             return receipt;
@@ -227,14 +261,8 @@ namespace pro {
                     0, nullptr
                 );
 
-                // Cleanup staging buffers
-                for(unsigned int i = 0; i < receipt.allStageBuffers.size(); i++) {
-                    cleanupVulkanBuffer(*refInitData, receipt.allStageBuffers[i]);
-                }
-                receipt.allStageBuffers.clear();
-                receipt.allReceiveBarriers.clear();
-                cleanupVulkanFence(*refInitData, receipt.copyFinished);
-                refInitData->device().freeCommandBuffers(transferPool, 1, &receipt.commandBuffer);
+                // Cleanup receipt
+                cleanupBufferReceipt(receipt);
 
                 // Completed!
                 isFinished = true;
@@ -243,55 +271,4 @@ namespace pro {
             return isFinished;
         };
     };
-
-    /*
-    inline VulkanStagingData beginStagingVulkanBufferCopies(    VulkanInitData &vkInitData, 
-                                                                vk::CommandPool &commandPool) {        
-        VulkanStagingData stagingData {};
-        stagingData.commandBuffer = createVulkanCommandBuffer(vkInitData, commandPool);
-        stagingData.commandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-        return stagingData;
-    }
-
-    void copyToDeviceLocalVulkanBuffer( VulkanInitData &vkInitData,
-                                        VulkanStagingData &stagingData,
-                                        VulkanBuffer &bufferData,
-                                        void *hostData) {
-
-        // Create host-visible staging buffer (TRANSFER_SRC)
-        VulkanBuffer stageData = createVulkanBuffer(    vkInitData, 
-                                                        bufferData.size,
-                                                        vk::BufferUsageFlagBits::eTransferSrc,
-                                                        createVMAHostVisibleInfo());
-
-        // Copy host data into staging buffer
-        copyToHostVisibleVulkanBuffer(vkInitData, stageData, hostData);
-
-        // Record copy from staging buffer to device-local buffer       
-        vk::BufferCopy copyRegion{};
-        copyRegion.size = bufferData.size;
-        stagingData.commandBuffer.copyBuffer(stageData.buffer, bufferData.buffer, 1, &copyRegion);
-
-        // Add temporary buffer to list (for cleanup later)
-        stagingData.allTempBuffers.push_back(stageData);
-    }
-   
-    void endStagingVulkanBufferCopies(  VulkanInitData &vkInitData, 
-                                        vk::CommandPool &commandPool,
-                                        VulkanStagingData &stagingData) {
-        // End recording
-        stagingData.commandBuffer.end();
-        // Submit to queue
-        vk::SubmitInfo submitInfo = vk::SubmitInfo().setCommandBuffers(stagingData.commandBuffer);                    
-        vkInitData.graphicsQueue.queue.submit(submitInfo);
-        vkInitData.graphicsQueue.queue.waitIdle();
-        // Clean up command buffer
-        vkInitData.device.freeCommandBuffers(commandPool, stagingData.commandBuffer);
-        // Destroy temporary buffers
-        for(int i = 0; i < stagingData.allTempBuffers.size(); i++) {
-            cleanupVulkanBuffer(vkInitData, stagingData.allTempBuffers.at(i));
-        }
-        stagingData.allTempBuffers.clear();
-    }
-        */
 }

@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <unordered_map>
 using namespace std;
 
 // If uncommented, use dynamic dispatcher
