@@ -2,6 +2,7 @@
 #include "ProCommand.hpp"
 
 namespace pro {
+    
     ///////////////////////////////////////////////////////////////////////////
     // STRUCTS 
     ///////////////////////////////////////////////////////////////////////////
@@ -24,14 +25,6 @@ namespace pro {
             this->hostData = hostData;
             this->dstAccessMask = dstAccessMask;
         };
-    };
-
-    struct BufferCopyReceipt {
-        string copyID = "";
-        vk::Fence copyFinished {};
-        vector<vk::BufferMemoryBarrier> allReceiveBarriers {};
-        vector<VulkanBuffer> allStageBuffers {};
-        vk::CommandBuffer commandBuffer {};
     };
 
     ///////////////////////////////////////////////////////////////////////////
@@ -115,70 +108,51 @@ namespace pro {
         // Return staging buffer
         return stageBuffer;
     };
-
+    
     ///////////////////////////////////////////////////////////////////////////
     // CLASSES 
     ///////////////////////////////////////////////////////////////////////////  
-
-    class TransferManager {
+    
+    class BufferCopyReceipt {
     private:
-        vk::CommandPool transferPool {};      
-        unordered_map<string, BufferCopyReceipt*> copiesInProgress;
-        VulkanInitData *refInitData;         // Do NOT clean up!!!
+        string copyID = "";
+        VulkanInitData *refInitData;        // Do NOT clean up!!!
+                     
+        vk::CommandPool transferCommandPool {};
+        vk::CommandBuffer transferCommandBuffer {};
+        vk::Fence copyFinished {};   
 
-        void cleanupBufferReceipt(BufferCopyReceipt &receipt) {
-            // Cleanup staging buffers
-            for(unsigned int i = 0; i < receipt.allStageBuffers.size(); i++) {
-                cleanupVulkanBuffer(*refInitData, receipt.allStageBuffers[i]);
-            }
-            receipt.allStageBuffers.clear();
-
-            // Cleanup receive barriers
-            receipt.allReceiveBarriers.clear();
-
-            // Cleanup fence
-            cleanupVulkanFence(*refInitData, receipt.copyFinished);
-
-            // Free command buffer
-            refInitData->device().freeCommandBuffers(transferPool, 1, &receipt.commandBuffer);
-
-            // Remove from list of pending copies
-            copiesInProgress.erase(receipt.copyID);
-        }
-                
+        vector<vk::BufferMemoryBarrier> allReceiveBarriers {};
+        vector<VulkanBuffer> allStageBuffers {};  
+                        
     public:
-        TransferManager(VulkanInitData &vkInitData) {
+        BufferCopyReceipt(  VulkanInitData &vkInitData, 
+                            string copyID,
+                            vector<PendingBufferCopy> &allPendingCopies) {   
+
             // Store init data
             refInitData = &vkInitData;
 
-            // Create pool for transfer queue
-            transferPool = createVulkanCommandPool(*refInitData, refInitData->transferQueue().index);            
-        };
+            // Set copyID
+            this->copyID = copyID;
 
-        ~TransferManager() {
-            // Cleanup any residual copies
-            for (auto it = copiesInProgress.begin(); it != copiesInProgress.end(); ) {
-                cleanupBufferReceipt(*(it->second));
-                it++;
+            // Create pool from transfer queue if possible;
+            // otherwise, just use graphics queue
+            if(refInitData->transferQueue().is_valid) {
+                this->transferCommandPool = createVulkanCommandPool(*refInitData, refInitData->transferQueue().index);            
             }
-            copiesInProgress.clear();
-
-            // Cleanup command pool            
-            cleanupVulkanCommandPool(*refInitData, transferPool);
-        };
-
-        BufferCopyReceipt submitCopies(string copyID, vector<PendingBufferCopy> &allPendingCopies) {
-            // Create the struct to hold the receipt
-            BufferCopyReceipt receipt {};
-
+            else {
+                this->transferCommandPool = createVulkanCommandPool(*refInitData, refInitData->graphicsQueue().index);            
+            }
+            
             // Create the fence (but start as UNsignaled)
-            receipt.copyFinished = createVulkanFence(*refInitData, vk::FenceCreateInfo());
+            this->copyFinished = createVulkanFence(*refInitData, vk::FenceCreateInfo());
 
             // Create the command buffer
-            receipt.commandBuffer = createVulkanCommandBuffers(*refInitData, transferPool).front();
-
+            this->transferCommandBuffer = createVulkanCommandBuffers(*refInitData, transferCommandPool).front();
+            
             // Start recording            
-            receipt.commandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+            this->transferCommandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
             // For each copy...
             vector<vk::BufferMemoryBarrier> srcOwnershipBarriers {};
@@ -188,87 +162,230 @@ namespace pro {
                     *refInitData, 
                     pendingCopy.dstBuffer.size,
                     pendingCopy.hostData);
-                receipt.allStageBuffers.push_back(stageBuffer);
+                this->allStageBuffers.push_back(stageBuffer);
 
                 // Record the copy
                 vk::BufferCopy copyRegion{};
                 copyRegion.size = pendingCopy.dstBuffer.size;
-                receipt.commandBuffer.copyBuffer(stageBuffer.buffer, pendingCopy.dstBuffer.buffer, 1, &copyRegion);
+                this->transferCommandBuffer.copyBuffer(stageBuffer.buffer, pendingCopy.dstBuffer.buffer, 1, &copyRegion);
                 
-                // Create the source ownership transfer barrier
-                vk::BufferMemoryBarrier tbarrier{};
-                tbarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-                tbarrier.dstAccessMask = pendingCopy.dstAccessMask;
-                tbarrier.srcQueueFamilyIndex = refInitData->transferQueue().index;
-                tbarrier.dstQueueFamilyIndex = refInitData->graphicsQueue().index; 
-                tbarrier.buffer = pendingCopy.dstBuffer.buffer;
-                tbarrier.size = VK_WHOLE_SIZE;
-                srcOwnershipBarriers.push_back(tbarrier);
+                // Are we using the transfer queue?
+                if(refInitData->transferQueue().is_valid) {
+                    // Create the source ownership transfer barrier
+                    vk::BufferMemoryBarrier tbarrier{};
+                    tbarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+                    tbarrier.dstAccessMask = pendingCopy.dstAccessMask;
+                    tbarrier.srcQueueFamilyIndex = refInitData->transferQueue().index;
+                    tbarrier.dstQueueFamilyIndex = refInitData->graphicsQueue().index; 
+                    tbarrier.buffer = pendingCopy.dstBuffer.buffer;
+                    tbarrier.size = VK_WHOLE_SIZE;
+                    srcOwnershipBarriers.push_back(tbarrier);
 
-                // Create the destination ownership transfer barrier
-                vk::BufferMemoryBarrier gbarrier{};
-                gbarrier.srcAccessMask = vk::AccessFlagBits::eNone;         
-                gbarrier.dstAccessMask = pendingCopy.dstAccessMask;
-                gbarrier.srcQueueFamilyIndex = refInitData->transferQueue().index;
-                gbarrier.dstQueueFamilyIndex = refInitData->graphicsQueue().index; 
-                gbarrier.buffer = pendingCopy.dstBuffer.buffer;
-                gbarrier.size = VK_WHOLE_SIZE;
-                receipt.allReceiveBarriers.push_back(gbarrier);
+                    // Create the destination ownership transfer barrier
+                    vk::BufferMemoryBarrier gbarrier{};
+                    gbarrier.srcAccessMask = vk::AccessFlagBits::eNone;         
+                    gbarrier.dstAccessMask = pendingCopy.dstAccessMask;
+                    gbarrier.srcQueueFamilyIndex = refInitData->transferQueue().index;
+                    gbarrier.dstQueueFamilyIndex = refInitData->graphicsQueue().index; 
+                    gbarrier.buffer = pendingCopy.dstBuffer.buffer;
+                    gbarrier.size = VK_WHOLE_SIZE;
+                    this->allReceiveBarriers.push_back(gbarrier);
+                }
             }
 
-            // Do the source ownership barriers at the bottom of the pipeline
-            receipt.commandBuffer.pipelineBarrier(
-                vk::PipelineStageFlagBits::eTransfer,
-                vk::PipelineStageFlagBits::eBottomOfPipe, 
-                vk::DependencyFlags(), 
-                0, nullptr, 
-                (uint32_t)srcOwnershipBarriers.size(), srcOwnershipBarriers.data(), 
-                0, nullptr
-            );
+            // If we have source ownership barriers...
+            if(srcOwnershipBarriers.size() > 0) {
+                // Do the source ownership barriers at the bottom of the pipeline
+                this->transferCommandBuffer.pipelineBarrier(
+                    vk::PipelineStageFlagBits::eTransfer,
+                    vk::PipelineStageFlagBits::eBottomOfPipe, 
+                    vk::DependencyFlags(), 
+                    0, nullptr, 
+                    (uint32_t)srcOwnershipBarriers.size(), srcOwnershipBarriers.data(), 
+                    0, nullptr
+                );
+            }
 
             // End recording
-            receipt.commandBuffer.end();
+            this->transferCommandBuffer.end();
+        };
+        
+        ~BufferCopyReceipt() {
+            // Cleanup staging buffers
+            for(unsigned int i = 0; i < this->allStageBuffers.size(); i++) {
+                cleanupVulkanBuffer(*refInitData, this->allStageBuffers[i]);
+            }
+            this->allStageBuffers.clear();
 
-            // Submit
-            vk::SubmitInfo submitInfo{};
-            submitInfo.commandBufferCount = 1;
-            submitInfo.pCommandBuffers = &receipt.commandBuffer;
-            refInitData->transferQueue().queue.submit(1, &submitInfo, receipt.copyFinished);
+            // Cleanup receive barriers
+            this->allReceiveBarriers.clear();
 
-            // Add to copies in progress
-            receipt.copyID = copyID;
-            copiesInProgress[copyID] = &receipt;
-            
-            // Return our receipt
-            return receipt;
+            // Cleanup fence
+            cleanupVulkanFence(*refInitData, this->copyFinished);
+
+            // Free command pool (and command buffer)
+            cleanupVulkanCommandPool(*refInitData, this->transferCommandPool);
         };
 
-        bool checkCompleted(BufferCopyReceipt &receipt, vk::CommandBuffer &graphicsCommandBuffer) {
-            bool isFinished = false;
+        void submit() {
+            vk::SubmitInfo submitInfo{};
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &(transferCommandBuffer);
+            
+            vk::Queue chosenQueue;
+            if(refInitData->transferQueue().is_valid) {
+                chosenQueue = refInitData->transferQueue().queue;
+            }
+            else {
+                chosenQueue = refInitData->graphicsQueue().queue;
+            }
 
-            // Have we finished copying?            
-            vk::Result status = refInitData->device().getFenceStatus(receipt.copyFinished);
+            chosenQueue.submit(1, &submitInfo, this->copyFinished);
+        };
 
-            if (status == vk::Result::eSuccess) {
+        bool isCopyFinished() {
+            vk::Result status = refInitData->device().getFenceStatus(this->copyFinished);
+            return (status == vk::Result::eSuccess);
+        };
+
+        bool waitForCopyFinished() {
+            vk::Result status = refInitData->device().waitForFences(this->copyFinished, true, UINT64_MAX);
+            return (status == vk::Result::eSuccess);
+        };
+
+        void queueReceiveBarriers(vk::CommandBuffer &graphicsCommandBuffer) {
+            // Did we have a transfer queue?
+            if(refInitData->transferQueue().is_valid) {
                 // Queue up barriers
                 graphicsCommandBuffer.pipelineBarrier(                        
                     vk::PipelineStageFlagBits::eTransfer,                        
                     vk::PipelineStageFlagBits::eVertexInput,                        
                     vk::DependencyFlags(),
                     0, nullptr,
-                    (uint32_t)receipt.allReceiveBarriers.size(), 
-                    receipt.allReceiveBarriers.data(),
+                    (uint32_t)this->allReceiveBarriers.size(), 
+                    this->allReceiveBarriers.data(),
                     0, nullptr
                 );
+            }
+        };
+
+        string getCopyID() { return copyID; };            
+    };
+
+
+    class TransferManager {
+    private:       
+        unordered_map<string, BufferCopyReceipt*> copiesInProgress;
+        VulkanInitData *refInitData;         // Do NOT clean up!!!
+
+    public:
+        TransferManager(VulkanInitData &vkInitData) {
+            // Store init data
+            refInitData = &vkInitData;
+        };
+
+        ~TransferManager() {
+            // Cleanup any residual copies
+            for (auto it = copiesInProgress.begin(); it != copiesInProgress.end(); ) {
+                BufferCopyReceipt *receipt = (it->second);
+                delete receipt;
+                it++;
+            }
+            copiesInProgress.clear();     
+        };
+
+        BufferCopyReceipt* submitCopies(string copyID, vector<PendingBufferCopy> &allPendingCopies) {
+            // Create the buffer receipt
+            BufferCopyReceipt *receipt = new BufferCopyReceipt(*refInitData, copyID, allPendingCopies);
+
+            // Submit copies to (transfer?) queue
+            receipt->submit();
+
+            // Add to copies in progress            
+            copiesInProgress[copyID] = receipt;
+            
+            // Return our receipt
+            return receipt;
+        };
+
+        bool checkCompleted(BufferCopyReceipt *receipt, 
+                            vk::CommandBuffer &graphicsCommandBuffer) {
+
+            bool isFinished = false;
+
+            if (receipt->isCopyFinished()) {
+                // Queue up receive barriers (for ending ownership handshake)
+                receipt->queueReceiveBarriers(graphicsCommandBuffer);
+                
+                // Remove from list of pending copies                
+                copiesInProgress.erase(receipt->getCopyID());
 
                 // Cleanup receipt
-                cleanupBufferReceipt(receipt);
+                delete receipt;
 
                 // Completed!
                 isFinished = true;
             }
 
             return isFinished;
+        };
+
+        bool checkAnyCompleted( vector<BufferCopyReceipt*> &allReceipts, 
+                                vk::CommandBuffer &graphicsCommandBuffer,
+                                vector<string> &receiptsComplete) {
+                                
+            bool anyComplete = false;
+
+
+            for(auto it = allReceipts.begin(); it != allReceipts.end(); ) {
+                BufferCopyReceipt* receipt = *it;
+                string copyID = receipt->getCopyID();
+                if(checkCompleted(*it, graphicsCommandBuffer)) {                    
+                    it = allReceipts.erase(it);   
+                    receiptsComplete.push_back(copyID);
+                    anyComplete = true;             
+                }
+                else {
+                    it++;
+                }
+            }
+
+            return anyComplete;
+        };
+
+        void waitUntilCompleted(vector<BufferCopyReceipt*> &allReceipts,                                
+                                vector<string> &receiptsComplete) {    
+
+            // Make graphics queue pool, buffer, and fence
+            vk::CommandPool blockGraphicsPool = createVulkanCommandPool(*refInitData, refInitData->graphicsQueue().index);
+            vk::CommandBuffer blockGraphicsBuffer = createVulkanCommandBuffers(*refInitData, blockGraphicsPool).front();
+            vk::Fence blockFence = createVulkanFence(*refInitData, vk::FenceCreateInfo());
+
+            // Start recording            
+            blockGraphicsBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+
+            // For each receipt...
+            for(int i = 0; i < allReceipts.size(); i++) {
+                string copyID = allReceipts[i]->getCopyID();
+                receiptsComplete.push_back(copyID); // All will be done by the end...
+                checkCompleted(allReceipts[i], blockGraphicsBuffer);
+            }
+
+            // End recording
+            blockGraphicsBuffer.end();
+
+            // Submit...
+            vk::SubmitInfo submitInfo{};
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &(blockGraphicsBuffer);            
+            refInitData->graphicsQueue().queue.submit(1, &submitInfo, blockFence);
+
+            // Block until fence complete...
+            refInitData->device().waitForFences(blockFence, true, UINT64_MAX);
+
+            // Cleanup command pool and fence
+            cleanupVulkanCommandPool(*refInitData, blockGraphicsPool);    
+            cleanupVulkanFence(*refInitData, blockFence);
         };
     };
 }

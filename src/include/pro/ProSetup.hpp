@@ -321,7 +321,7 @@ namespace pro {
         const VulkanQueue& graphicsQueue() const noexcept { return graphicsQueue_; };
         const VulkanQueue& presentQueue() const noexcept {  return presentQueue_; };
         const VulkanQueue& computeQueue() const noexcept {  return computeQueue_; };
-        const VulkanQueue& transferQueue() const noexcept {  return transferQueue_; };
+        const VulkanQueue& transferQueue() const noexcept { return transferQueue_; };        
         const VulkanSwapChain& swapchain() const noexcept { return swapchain_; };
         const VmaAllocator allocator() const noexcept { return allocator_; };
 

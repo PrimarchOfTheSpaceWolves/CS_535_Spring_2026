@@ -27,7 +27,7 @@ namespace pro {
     inline vk::CommandPool createVulkanCommandPool(
         const VulkanInitData &vkInitData, 
         unsigned int queueIndex,
-        vk::CommandPoolCreateFlags flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer) {
+        vk::CommandPoolCreateFlags flags = vk::CommandPoolCreateFlagBits::eTransient) {
 
         return vkInitData.device().createCommandPool(
             vk::CommandPoolCreateInfo(flags, queueIndex));   

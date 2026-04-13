@@ -230,6 +230,7 @@ namespace pro {
         vkInitData.device().waitIdle();
 
         // Create a temporary command pool and buffer for image transitions
+        // TODO: FIX THIS
         vk::CommandPool depthCommandPool = vkInitData.device().createCommandPool(
                                 vk::CommandPoolCreateInfo(
                                     vk::CommandPoolCreateFlags(

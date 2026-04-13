@@ -66,6 +66,5 @@ namespace pro {
         string full_error_msg = get_full_error_string(origin, "ERROR", msg);
         cerr << full_error_msg << endl;
         throw runtime_error(full_error_msg);
-    };   
-
+    };
 }
