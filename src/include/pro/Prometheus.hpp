@@ -7,3 +7,4 @@
 #include "ProPipeline.hpp"
 #include "ProBuffer.hpp"
 #include "ProMesh.hpp"
+#include "ProUniform.hpp"
